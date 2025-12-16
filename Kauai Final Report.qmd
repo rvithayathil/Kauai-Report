@@ -1,0 +1,543 @@
+---
+title: "Kauai: The Garden Isle"
+subtitle: "A Statistical Analysis of Hawaii's Oldest Island"
+format: html
+editor: visual
+echo: false
+warning: false
+---
+
+```{r setup, include=FALSE}
+# Load required packages
+library(tidyverse)
+library(tidycensus)
+library(tigris)
+library(sf)
+library(leaflet)
+library(plotly)
+library(kableExtra)
+library(gt)
+library(scales)
+library(viridis)
+library(ggplot2)
+library(patchwork)
+
+# Set options
+options(tigris_use_cache = TRUE)
+
+# Set your Census API key here (only needed for initial data download)
+# census_api_key("10b21e1ae1815a5144a975e0191b5cd6fe334292", install = TRUE)
+```
+
+![](images/clipboard-2466610537.png)
+
+# Introduction
+
+This report provides a comprehensive analysis of Kauai, Hawaii's oldest island. We examine demographic trends, economic indicators, climate patterns, and tourism statistics, comparing Kauai to other Hawaiian islands.
+
+## About Kauai
+
+Kauai, known as the "Garden Isle," is the oldest of the main Hawaiian Islands at approximately 5.1 million years old. Located in the northwestern part of the Hawaiian archipelago, it covers 562 square miles and is home to over 73,000 residents.
+
+### Key Facts
+
+-   **Location**: 22.0964° N, 159.5261° W
+-   **Area**: 562.3 square miles
+-   **Population**: \~73,000 (2020 Census)
+-   **County**: Kauai County
+-   **Highest Point**: Kawaikini (5,243 feet)
+-   **Notable Features**: Na Pali Coast, Waimea Canyon, Mount Waialeale (one of the wettest spots on Earth)
+
+## About This Project
+
+This analysis uses data from the U.S. Census Bureau's American Community Survey (ACS) to explore:
+
+-   Population trends and demographics
+-   Economic indicators and housing
+-   Comparisons with other Hawaiian islands
+-   Geographic distributions across census tracts
+
+The ACS **5-year estimates** combine data collected over a 5-year period (2018-2022) to provide more reliable estimates, especially for small geographic areas. The data represents an **average** of those 5 years, released in 2022.
+
+Note: that county data for Kalawao may be missing in some visuals due to the county having less than 100 individuals.
+
+```{r pull from data folder}
+hawaii_data <- readRDS("data/hawaii_data.rds")
+hawaii_spatial <- readRDS("data/hawaii_spatial.rds")
+kauai_tracts <- readRDS("data/kauai_tracts.rds")
+```
+
+```{r exec-summary-stats}
+kauai_stats <- hawaii_data %>% filter(county_name == "Kauai")
+state_avg <- hawaii_data %>% 
+  summarise(across(c(median_income, median_home_value, median_age), mean, na.rm = TRUE))
+```
+
+------------------------------------------------------------------------
+
+# Geographic and Demographic Overview
+
+## Population Distribution
+
+The following interactive map displays the population distribution across Hawaiian counties. Kauai County, located in the northwestern region of the Hawaiian archipelago, shows distinct population patterns compared to more urbanized counties.
+
+```{r population-map, fig.height=6, fig.cap="Figure 1: Population Distribution Across Hawaiian Counties"}
+# Transform to WGS84 (EPSG:4326) for Leaflet
+hawaii_spatial <- st_transform(hawaii_spatial, crs = 4326)
+
+pal <- colorNumeric(palette = "YlOrRd", domain = hawaii_spatial$estimate)
+
+leaflet(hawaii_spatial) %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  setView(lng = -157.8, lat = 20.8, zoom = 7) %>% # zoom in on Hawaii
+  addPolygons(
+    fillColor = ~pal(estimate),
+    weight = 2,
+    opacity = 1,
+    color = "white",
+    fillOpacity = 0.7,
+    highlightOptions = highlightOptions(
+      weight = 3,
+      color = "#666",
+      fillOpacity = 0.9,
+      bringToFront = TRUE
+    ),
+    label = ~paste0(county_name, ": ", format(estimate, big.mark = ",")),
+    labelOptions = labelOptions(
+      style = list("font-weight" = "normal", padding = "3px 8px"),
+      textsize = "15px",
+      direction = "auto"
+    )
+  ) %>%
+  addLegend(
+    pal = pal,
+    values = ~estimate,
+    opacity = 0.7,
+    title = "Population",
+    position = "bottomright",
+    labFormat = labelFormat(big.mark = ",")
+  )
+```
+
+## Demographic Characteristics
+
+```{r demo-table}
+hawaii_data %>%
+  select(
+    County = county_name,
+    Population = total_pop,
+    `Median Age` = median_age,
+    `Bachelor's Degree or Higher (%)` = bachelors_pct
+  ) %>%
+  arrange(desc(Population)) %>%
+  gt() %>%
+  fmt_number(columns = Population, decimals = 0) %>%
+  fmt_number(columns = c(`Median Age`, `Bachelor's Degree or Higher (%)`), decimals = 1) %>%
+  tab_header(
+    title = md("**Table 1: Demographic Characteristics by County**"),
+    subtitle = "American Community Survey 2022 (5-year estimates)"
+  ) %>%
+  tab_style(
+    style = cell_fill(color = "#E8F4F8"),
+    locations = cells_body(rows = County == "Kauai")
+  ) %>%
+  tab_footnote(
+    footnote = "Kauai County highlighted for reference",
+    locations = cells_column_labels(columns = County)
+  ) %>%
+  tab_source_note(source_note = "Source: U.S. Census Bureau, ACS 2022") %>%
+  opt_stylize(style = 6, color = "blue")
+```
+
+The demographic profile reveals variations in age distribution and educational attainment across counties, with implications for workforce development and social services planning.
+
+------------------------------------------------------------------------
+
+# Economic Analysis
+
+## Income Patterns
+
+Geographic distribution of median household income demonstrates economic disparities across the Hawaiian Islands. The following map visualizes these patterns, with darker shades indicating higher median incomes.
+
+```{r income-map, fig.height=6, fig.cap="Figure 2: Median Household Income Distribution"}
+income_spatial <- hawaii_spatial %>%
+  left_join(hawaii_data %>% select(GEOID, median_income), by = "GEOID")
+
+pal_income <- colorNumeric(palette = "Greens", domain = income_spatial$median_income)
+
+leaflet(income_spatial) %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  setView(lng = -157.8, lat = 20.8, zoom = 7) %>% # zoom in on Hawaii
+  addPolygons(
+    fillColor = ~pal_income(median_income),
+    weight = 2,
+    opacity = 1,
+    color = "white",
+    fillOpacity = 0.7,
+    highlightOptions = highlightOptions(
+      weight = 3,
+      color = "#666",
+      fillOpacity = 0.9,
+      bringToFront = TRUE
+    ),
+    label = ~paste0(county_name, ": $", format(median_income, big.mark = ",")),
+    labelOptions = labelOptions(
+      style = list("font-weight" = "normal", padding = "3px 8px"),
+      textsize = "15px",
+      direction = "auto"
+    )
+  ) %>%
+  addLegend(
+    pal = pal_income,
+    values = ~median_income,
+    opacity = 0.7,
+    title = "Median Income",
+    position = "bottomright",
+    labFormat = labelFormat(prefix = "$", big.mark = ",")
+  )
+```
+
+## Comparative Income and Housing
+
+```{r income-housing-comparison, fig.height=5, fig.width=12, fig.cap="Figure 3: Economic Indicators - Income and Housing Values"}
+p1 <- ggplot(hawaii_data, aes(x = reorder(county_name, median_income), 
+                               y = median_income, 
+                               fill = is_kauai)) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label = dollar(median_income, accuracy = 1)), 
+            hjust = -0.1, size = 3.5, fontface = "bold") +
+  coord_flip() +
+  scale_fill_manual(values = c("Kauai" = "#2E86AB", "Other Counties" = "#7A8B99")) +
+  scale_y_continuous(labels = dollar_format(), expand = expansion(mult = c(0, 0.15))) +
+  labs(
+    title = "Median Household Income",
+    x = NULL,
+    y = "Annual Income (USD)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold", size = 14),
+    panel.grid.major.y = element_blank()
+  )
+
+p2 <- ggplot(hawaii_data, aes(x = reorder(county_name, median_home_value), 
+                               y = median_home_value, 
+                               fill = is_kauai)) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label = dollar(median_home_value, accuracy = 1, scale = 1e-3, suffix = "K")), 
+            hjust = -0.1, size = 3.5, fontface = "bold") +
+  coord_flip() +
+  scale_fill_manual(values = c("Kauai" = "#2E86AB", "Other Counties" = "#7A8B99")) +
+  scale_y_continuous(labels = label_dollar(scale = 1e-3, suffix = "K"), 
+                     expand = expansion(mult = c(0, 0.15))) +
+  labs(
+    title = "Median Home Value",
+    x = NULL,
+    y = "Property Value (USD)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold", size = 14),
+    panel.grid.major.y = element_blank()
+  )
+
+p1 + p2
+```
+
+The economic indicators reveal that Kauai maintains competitive income levels while experiencing housing costs reflective of island real estate market dynamics.
+
+## Housing Affordability
+
+```{r affordability-scatter, fig.height=6, fig.width=9, fig.cap="Figure 4: Relationship Between Income and Housing Costs"}
+ggplot(hawaii_data, aes(x = median_income, y = median_home_value, 
+                        color = is_kauai, size = total_pop)) +
+  geom_point(alpha = 0.8) +
+  geom_text(aes(label = county_name), vjust = -1.5, size = 4, 
+            fontface = "bold", show.legend = FALSE) +
+  scale_color_manual(
+    values = c("Kauai" = "darkgreen", "Other Counties" = "#2E86AB"),
+    name = NULL
+  ) +
+  scale_size_continuous(
+    name = "Population", 
+    labels = comma_format(),
+    range = c(8, 18)
+  ) +
+     scale_x_continuous(
+        labels = label_dollar(scale = 1e-3, suffix = "K"),    # Shortens labels
+        limits = c(70000, 100000), 
+        expand = expansion(mult = c(0.4, 0.4))
+      ) +
+ scale_y_continuous(
+        labels = label_dollar(scale = 1e-3, suffix = "K"),  
+        # Show as "$800K" instead of "$800,000"
+        expand = expansion(mult = c(0.4, 0.4))
+      ) +
+  labs(
+    title = "Income vs. Housing Value Relationship",
+    subtitle = "Circle size represents county population",
+    x = "Median Household Income",
+    y = "Median Home Value"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 15),
+    plot.subtitle = element_text(size = 11, color = "gray40"),
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+```
+
+------------------------------------------------------------------------
+
+# Education and Workforce
+
+![](images/clipboard-625687675.png){fig-align="center" width="417"}
+
+```{r education-comparison, fig.height=5, fig.width=12, fig.cap="Figure 5: Education and Age Demographics"}
+p3 <- ggplot(hawaii_data, aes(x = reorder(county_name, bachelors_pct), 
+                               y = bachelors_pct, 
+                               fill = is_kauai)) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label = paste0(round(bachelors_pct, 1), "%")), 
+            hjust = -0.1, size = 3.5, fontface = "bold") +
+  coord_flip() +
+  scale_fill_manual(values = c("Kauai" = "#2E86AB", "Other Counties" = "#7A8B99")) +
+  scale_y_continuous(
+    labels = function(x) paste0(x, "%"),
+    expand = expansion(mult = c(0, 0.15))
+  ) +
+  labs(
+    title = "Bachelor's Degree or Higher",
+    subtitle = "Percentage of population age 25+",
+    x = NULL,
+    y = "Educational Attainment (%)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold", size = 14),
+    panel.grid.major.y = element_blank()
+  )
+
+p4 <- ggplot(hawaii_data, aes(x = reorder(county_name, median_age), 
+                               y = median_age, 
+                               fill = is_kauai)) +
+  geom_col(width = 0.7) +
+  geom_text(aes(label = paste0(round(median_age, 1), " yrs")), 
+            hjust = -0.1, size = 3.5, fontface = "bold") +
+  coord_flip() +
+  scale_fill_manual(values = c("Kauai" = "#2E86AB", "Other Counties" = "#7A8B99")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+  labs(
+    title = "Median Age",
+    subtitle = "Years",
+    x = NULL,
+    y = "Age (Years)"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold", size = 14),
+    panel.grid.major.y = element_blank()
+  )
+
+p3 + p4
+```
+
+Educational attainment varies across counties, reflecting different economic structures and workforce demands. Age demographics provide context for understanding community composition and future workforce trends.
+
+------------------------------------------------------------------------
+
+# Comprehensive Statistics
+
+```{r comprehensive-table}
+hawaii_data %>%
+  select(
+    County = county_name,
+    Population = total_pop,
+    `Median Income` = median_income,
+    `Median Age` = median_age,
+    `Median Home Value` = median_home_value,
+    `Median Rent` = median_rent,
+    `Bachelor's %` = bachelors_pct,
+    `Unemployment %` = unemployment_rate
+  ) %>%
+  arrange(desc(Population)) %>%
+  gt() %>%
+  fmt_number(columns = Population, decimals = 0) %>%
+  fmt_currency(
+    columns = c(`Median Income`, `Median Home Value`, `Median Rent`),
+    decimals = 0
+  ) %>%
+  fmt_number(
+    columns = c(`Median Age`, `Bachelor's %`, `Unemployment %`),
+    decimals = 1
+  ) %>%
+  tab_header(
+    title = md("**Table 2: Comprehensive Socioeconomic Indicators**"),
+    subtitle = "All Hawaiian Counties, 2022"
+  ) %>%
+  tab_style(
+    style = list(
+      cell_fill(color = "#E8F4F8"),
+      cell_text(weight = "bold")
+    ),
+    locations = cells_body(rows = County == "Kauai")
+  ) %>%
+  tab_footnote(
+    footnote = "Kauai County highlighted as primary focus of analysis",
+    locations = cells_column_labels(columns = County)
+  ) %>%
+  tab_source_note(source_note = "Source: U.S. Census Bureau, American Community Survey 2022 (5-year estimates)") %>%
+  opt_stylize(style = 6, color = "blue") %>%
+  tab_options(
+    table.font.size = px(13),
+    heading.title.font.size = px(16),
+    heading.subtitle.font.size = px(13)
+  )
+```
+
+------------------------------------------------------------------------
+
+------------------------------------------------------------------------
+
+# Geographic Infrastructure
+
+## Road Network Analysis
+
+The `tigris` package provides access to detailed geographic features from the U.S. Census Bureau's TIGER/Line database. Below we visualize the road network in Kauai county.
+
+```{r load-tigris-data}
+# Load pre-saved tigris data
+kauai_roads <- readRDS("data/kauai_roads.rds")
+kauai_water <- readRDS("data/kauai_water.rds")
+kauai_census_tracts_data <- readRDS("data/kauai_census_tracts_data.rds")
+```
+
+```{r}
+# Simplify road geometries to reduce complexity
+kauai_roads_simplified <- st_simplify(kauai_roads, dTolerance = 10)
+
+# Filter for major roads
+major_roads <- kauai_roads_simplified %>%
+  filter(RTTYP %in% c("I", "U", "S", "C"))
+
+# Create map
+ggplot() +
+  geom_sf(data = hawaii_spatial %>% filter(county_name == "Kauai"), 
+          fill = "#E8F4F8", color = "#2E86AB", size = 1.2) +
+  geom_sf(data = kauai_roads_simplified, color = "gray70", size = 0.3, alpha = 0.6) +
+  geom_sf(data = major_roads, aes(color = RTTYP), size = 1) +
+  scale_color_manual(
+    values = c("I" = "#D62828", "U" = "#F77F00", "S" = "#FCBF49", "C" = "#2E86AB"),
+    labels = c("Interstate", "US Highway", "State Route", "County Road"),
+    name = "Road Type"
+  ) +
+  labs(
+    title = "Transportation Infrastructure: Kauai County",
+    subtitle = "Major road networks and county boundaries",
+    caption = "Source: U.S. Census Bureau TIGER/Line Shapefiles 2022"
+  ) +
+  theme_void(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 15, hjust = 0.5),
+    plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray40"),
+    plot.caption = element_text(size = 9, color = "gray50"),
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold")
+  )
+```
+
+Kauai's road network reflects the county's geographic constraints as an island community. The transportation infrastructure is characterized by a coastal highway system that encircles much of the island, with limited interior road development due to the mountainous terrain of the island's central region. Unlike more urbanized Hawaiian counties, Kauai lacks interstate highways, with the road network primarily consisting of state routes and county roads that serve both residential areas and the tourism industry. The spatial distribution of roads reveals settlement patterns concentrated along the coast, particularly on the eastern and southern shores where population density is highest. The relative absence of roads in the island's interior—home to Mount Waiʻaleʻale, one of the wettest spots on Earth—underscores the relationship between topography, climate, and infrastructure development.
+
+## Water Features
+
+```{r water-features, fig.height=7, fig.width=10, fig.cap="Figure 7: Hydrographic Features in Kauai County"}
+# Simplify water geometries for faster rendering
+kauai_water_simplified <- st_simplify(kauai_water, dTolerance = 10)
+
+# Create map showing water bodies
+ggplot() +
+  geom_sf(data = hawaii_spatial %>% filter(county_name == "Kauai"), 
+          fill = "#F5E6D3", color = "#8B7355") +
+  geom_sf(data = kauai_water, fill = "#4A90E2", color = "#2E5C8A", alpha = 0.7) +
+  labs(
+    title = "Hydrographic Features: Kauai County",
+    subtitle = "Lakes, reservoirs, and coastal water bodies",
+    caption = "Source: U.S. Census Bureau TIGER/Line Shapefiles 2022"
+  ) +
+  theme_void(base_size = 12) +
+  theme(
+    plot.title = element_text(face = "bold", size = 15, hjust = 0.5),
+    plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray40"),
+    plot.caption = element_text(size = 9, color = "gray50")
+  )
+```
+
+Kauai's hydrographic features include both natural water bodies and human-engineered reservoirs that support the island's agriculture. The mapped water features highlight several key characteristics: 
+
+**\*\*Natural Features\*\***: Coastal estuaries and natural ponds are distributed around the island's perimeter, supporting unique ecosystems and serving as important habitat for native Hawaiian species. 
+
+**\*\*Reservoirs and Agricultural Infrastructure\*\***: Several large reservoirs, particularly visible in the southern and eastern portions of the island, reflect Kauai's historical role in sugar cane cultivation. These water management systems continue to serve agricultural operations and, in some cases, have been repurposed for hydroelectric power generation. 
+
+**\*\*Spatial Relationship to Settlement\*\***: The distribution of water features correlates with population centers, indicating the historical importance of water access in determining settlement patterns and agricultural development. The prominence of water features in Kauai's landscape reflects both the island's abundant rainfall—particularly in the interior highlands—and the necessity of water management infrastructure to support human activity in an island environment.
+
+# Conclusions and Implications
+
+## Key Findings
+
+Based on the comprehensive analysis of census data, several important patterns emerge:
+
+**Demographic Profile**
+
+Kauai County demonstrates a stable demographic composition with a median age of `r round(kauai_stats$median_age, 1)` years and a total population of `r format(kauai_stats$total_pop, big.mark = ",")`. This positions Kauai as a moderately sized county within the Hawaiian archipelago.
+
+**Economic Indicators**
+
+The median household income of `r dollar(kauai_stats$median_income)` reflects a robust local economy, while the median home value of `r dollar(kauai_stats$median_home_value)` indicates housing market pressures common across Hawaiian counties. The relationship between income and housing costs suggests ongoing affordability challenges that warrant policy attention.
+
+**Educational Attainment**
+
+With `r round(kauai_stats$bachelors_pct, 1)`% of residents holding bachelor's degrees or higher, Kauai shows competitive educational attainment levels. This human capital represents an asset for economic diversification and workforce development initiatives.
+
+## Policy Implications
+
+1.  **Housing Affordability**: The income-to-housing-value ratio suggests the need for continued focus on affordable housing development and preservation.
+
+2.  **Workforce Development**: Educational attainment levels support investment in knowledge-based industries while maintaining traditional economic sectors.
+
+3.  **Demographic Planning**: Age distribution patterns inform infrastructure, healthcare, and social service planning needs.
+
+## Limitations and Future Research
+
+This analysis is based on 5-year ACS estimates and represents data collected through 2022. Future research should examine:
+
+-   Temporal trends in demographic and economic indicators
+-   Intra-county geographic variations
+-   Impact of tourism and other industry sectors on local economies
+-   Climate change and resilience planning implications
+
+![](images/clipboard-1340136443.png)
+
+------------------------------------------------------------------------
+
+# Technical Appendix {.appendix}
+
+## Data Sources and Methodology
+
+**Data Collection**: All data were obtained from the U.S. Census Bureau's American Community Survey (ACS) 2022 5-year estimates via the `tidycensus` R package.
+
+**Geographic Level**: County-level data for all five Hawaiian counties (Hawaii, Honolulu, Kauai, Maui, and Kalawao).
+
+**Variables Collected**:
+
+-   B01003_001: Total Population
+-   B19013_001: Median Household Income
+-   B01002_001: Median Age
+-   B15003_022 & B15003_001: Educational Attainment
+-   B25077_001: Median Home Value
+-   B25064_001: Median Gross Rent
+-   B23025_005 & B23025_003: Unemployment Rate
