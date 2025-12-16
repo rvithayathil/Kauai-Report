@@ -524,7 +524,7 @@ This analysis is based on 5-year ACS estimates and represents data collected thr
 
 ------------------------------------------------------------------------
 
-# Technical Appendix {.appendix}
+# Appendix {.appendix}
 
 ## Data Sources and Methodology
 
@@ -541,3 +541,7 @@ This analysis is based on 5-year ACS estimates and represents data collected thr
 -   B25077_001: Median Home Value
 -   B25064_001: Median Gross Rent
 -   B23025_005 & B23025_003: Unemployment Rate
+
+## References
+
+Referenced claude.ai and chat.gpt for code generation
